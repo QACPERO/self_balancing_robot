@@ -1,7 +1,7 @@
 #include <Arduino.h>
-#include <Wire.h> //essential for I2C communication
-#include <MPU6050.h> //library for MPU6050 sensor
-#include <I2Cdev.h> //I2C device library
+//#include <Wire.h> //essential for I2C communication
+//#include <MPU6050.h> //library for MPU6050 sensor
+//#include <I2Cdev.h> //I2C device library
 
 
 //LN298N Motor Driver Pins
@@ -27,6 +27,50 @@ enum Motor {
   MOTOR_B
 };
 
+struct IMUData {
+  float accelX;
+  float accelY;
+  float accelZ;
+  float gyroX;
+  float gyroY;
+  float gyroZ;
+};
+
+
+//constants and variables
+
+//complementrary filter variables
+ //time interval between filter updates
+
+struct ComplementaryFilter {
+  float alpha;
+  unsigned long lastUpdate;
+  float dt = 0.01; // 10 ms
+  float filteredAngle;
+  void initialize(float alphaValue, float dtValue) {
+    alpha = alphaValue;
+    dt = dtValue;
+    lastUpdate = millis();
+    filteredAngle = 0.0;
+  }
+
+  void update(float newGyroAngle, float newAccAngle){ // angular speed from gyroscope and angle from accelerometer
+    float currentTime = millis();
+    float currentDt = (currentTime - lastUpdate) / 1000.0; // convert to seconds
+    if(currentDt >= dt){
+      // filtering
+
+      float gyroAngle = newGyroAngle * currentDt;
+      filteredAngle = alpha * (filteredAngle + gyroAngle) + (1 - alpha) * newAccAngle;
+
+      lastUpdate = currentTime;
+    }
+    
+  }
+};
+
+
+
  
 void setMotorSpeed(Motor motor, Direction direction, uint8_t speed); //setter function for motor speed and direction
 
@@ -46,9 +90,15 @@ void loop() {
   // put your main code here, to run repeatedly:
 }
 
+
+void complementaryFilter(){
+  // Implementation of the complementary filter
+
+}
+
 void setMotorSpeed(Motor motor, Direction direction, uint8_t speed){
   if(speed > 255) speed = 255;
-  if(motor == MOTOR_A){
+  if(motor == MOTOR_A){ //
     if(direction==FORWARD){
       analogWrite(IN1,LOW);
       analogWrite(IN2, HIGH);
@@ -58,7 +108,7 @@ void setMotorSpeed(Motor motor, Direction direction, uint8_t speed){
     }
     analogWrite(ENA,speed);
     return;
-  } else if(motro == MOTOR_B){
+  } else if(motor == MOTOR_B){
     if(direction==FORWARD){
       analogWrite(IN3,LOW);
       analogWrite(IN4, HIGH);
