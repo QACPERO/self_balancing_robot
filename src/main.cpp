@@ -147,13 +147,13 @@ void loop() {
   Serial.println(compFilter.filteredAngle);
 
   //teleplot
-  Serial.print("> Filtered Angle:"); Serial.print(compFilter.filteredAngle);
-  Serial.print("> Gyro angle:"); Serial.print(gyroY);
-  Serial.print("> Acc angle:"); Serial.println(acc_angle);
-  
+  Serial.print("> Filtered Angle:"); Serial.println(compFilter.filteredAngle);
+  Serial.print("> Gyro Angle:"); Serial.println(gyroY);
+  Serial.print("> Acc Angle:"); Serial.println(acc_angle);
+
 
   //PID implementation
-  delay(10); //loop delay
+  //delay(10); //loop delay
 }
 
 
