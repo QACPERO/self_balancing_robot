@@ -46,31 +46,34 @@ struct ComplementaryFilter {
   unsigned long lastUpdate;
   float dt; 
   float filteredAngle;
+  float tau; //time constant
   void initialize(float tau, float dtValue, float initialAngle){
     dt = dtValue;
-    alpha = tau / (dt + tau); // calculate alpha based on time constant and dt
+    this->tau = tau; 
     lastUpdate = millis();
     filteredAngle = initialAngle;
   }
 
-  void update(float newGyroAngle, float newAccAngle){ // angular speed from gyroscope and angle from accelerometer
+  void update(float newGyroAngle, float newAccAngle, float dt){ // angular speed from gyroscope and angle from accelerometer
     float currentTime = millis();
     float currentDt = (currentTime - lastUpdate) / 1000.0; // convert to seconds
-    if(currentDt >= dt){
+    alpha = tau / (dt + tau); // calculate alpha based on time constant and dt
+
+
+    //if(currentDt >= dt){
       // filtering
 
-      float gyroAngle = newGyroAngle * currentDt;
+      float gyroAngle = newGyroAngle * dt;
       filteredAngle = alpha * (filteredAngle + gyroAngle) + (1 - alpha) * newAccAngle;
 
-      lastUpdate = currentTime;
-    }
-    
+      //lastUpdate = currentTime;
+    //}
   }
 };
 
 
 void setMotorSpeed(Motor motor, Direction direction, uint8_t speed); //setter function for motor speed and direction
-void pidControl(); //PID control function
+void pidControl(float currentAngle, float gyroY, float setPoint, float dt); //PID control function
 
 
 // Create an MPU6050 object
@@ -79,14 +82,15 @@ ComplementaryFilter compFilter;
 IMUData imuData;
 
 //variales for complementary filter
-float tau = 0.5; //time constant for complementary filter /// 0.5 = mid /// 2.0 = smooth /// 0.1 = responsive
+float tau = 1; //time constant for complementary filter /// 0.5 = mid /// 2.0 = smooth /// 0.1 = responsive
 float dt = 0.01; //time interval for filter update in seconds
+unsigned long timer = 0; //timer for dt calculation
 float initialAngle = 0.0; //initial angle for filter -> to be set after first reading
 
 //variables for PID control
-float Kp = 15.0; //proportional gain
+float Kp = 15; //proportional gain
 float Ki = 0.0;  //integral gain
-float Kd = 1.0;  //derivative gain
+float Kd = 0.1;  //derivative gain
 
 void setup() {
   // put your setup code here, to run once:
@@ -98,7 +102,7 @@ void setup() {
   pinMode(ENB, OUTPUT);
 
   Wire.begin();
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   Serial.println("Initializing MPU6050...");
   mpu.initialize();
@@ -135,35 +139,80 @@ void setup() {
   compFilter.initialize(tau, dt, startAngle);
   Serial.print("Start Angle: "); Serial.println(startAngle);//initialize complementary filter and initial angle from accelerometer
   Serial.println("Setup complete.");
+  timer = micros();
 }
 
 void loop() {
-  // // put your main code here, to run repeatedly:
-  // mpu.getMotion6(&imuData.accelX, &imuData.accelY, &imuData.accelZ, &imuData.gyroX, &imuData.gyroY, &imuData.gyroZ);
-  // //convert gyroscope values to deg/s
-  // float gyroY = imuData.gyroY / 131.0; 
+  // put your main code here, to run repeatedly:
+  dt = (double)(micros() - timer) / 1000000.0;
+  timer = micros();
 
-  // float acc_angle = atan2(-imuData.accelX, sqrt((long)imuData.accelY*imuData.accelY + (long)imuData.accelZ*imuData.accelZ)) * 57.296;
+  mpu.getMotion6(&imuData.accelX, &imuData.accelY, &imuData.accelZ, &imuData.gyroX, &imuData.gyroY, &imuData.gyroZ);
+  //convert gyroscope values to deg/s
+  float gyroY = imuData.gyroY / 131.0; 
 
-  // compFilter.update(gyroY, acc_angle); //update complementary filter with gyroscope Y axis and accelerometer angle
-  // Serial.print("Filtered Angle: ");
-  // Serial.println(compFilter.filteredAngle);
+  float acc_angle = atan2(-imuData.accelX, sqrt((long)imuData.accelY*imuData.accelY + (long)imuData.accelZ*imuData.accelZ)) * 57.296;
 
-  // //teleplot
-  // Serial.print("> Filtered Angle:"); Serial.println(compFilter.filteredAngle);
-  // Serial.print("> Gyro Angle:"); Serial.println(gyroY);
-  // Serial.print("> Acc Angle:"); Serial.println(acc_angle);
+  compFilter.update(gyroY, acc_angle, dt); //update complementary filter with gyroscope Y axis and accelerometer angle
+  Serial.print("Filtered Angle: ");
+  Serial.println(compFilter.filteredAngle);
 
+  //teleplot
+  Serial.print("> Filtered Angle:"); Serial.println(compFilter.filteredAngle);
+  Serial.print("> Gyro Angle:"); Serial.println(gyroY);
+  Serial.print("> Acc Angle:"); Serial.println(acc_angle);
 
-  setMotorSpeed(MOTOR_A, FORWARD, 40);
-  setMotorSpeed(MOTOR_B, FORWARD, 40);
-  Serial.println("Motors running forward at speed 250");
+  //PID control
+  pidControl(compFilter.filteredAngle, gyroY, 0.0, dt); //set point is 0.0 for balancing
 
-  //PID implementation
-  //delay(10); //loop delay
 }
 
+void pidControl(float currentAngle, float gyroY, float setPoint, float dt){  //current filtered angle and set point, set point is crucial to implement joystick cotroler in the future
 
+  float error = currentAngle - setPoint;
+
+  //propotional part
+  float proportional = error;
+  
+  //integration part 
+  static float integral = 0; //static variable to hold integral value
+  integral += error * dt; //trapezoidal integration
+  integral = constrain(integral, -100, 100); //itegral windup
+
+  
+
+
+  //derivative part 
+  float derivative = (-1)*gyroY; //using gyroscope value directly as derivative
+
+
+  float output = Kp * proportional + Ki * integral + Kd * derivative;
+  
+
+  //deathZone implementation
+  if(output > 0){
+    output += 20;
+  }
+  if(output < 0){
+    output -= 20;
+  }
+
+  output = constrain(output, -255, 255); //constrain output to motor speed range
+
+  Serial.print(">PID Output: "); Serial.println(output);
+
+  //motor control
+  if(output > 0){
+    setMotorSpeed(MOTOR_A, FORWARD, abs(output));
+    setMotorSpeed(MOTOR_B, FORWARD, abs(output));
+  } else if(output < 0){
+    setMotorSpeed(MOTOR_A, BACKWARD, abs(output));
+    setMotorSpeed(MOTOR_B, BACKWARD, abs(output));
+  } else {
+    setMotorSpeed(MOTOR_A, FORWARD, 0);
+    setMotorSpeed(MOTOR_B, FORWARD, 0);
+  }
+}
 
 void setMotorSpeed(Motor motor, Direction direction, uint8_t speed){
   if(speed > 255) speed = 255;
@@ -190,34 +239,3 @@ void setMotorSpeed(Motor motor, Direction direction, uint8_t speed){
   }
 }
 
-void pidControl(float currentAngle, float prevAngle, float gyroY, float setPoint, float dt){  //current filtered angle and set point, set point is crucial to implement joystick cotroler in the future
-  
-  float error = setPoint - currentAngle;
-
-  //propotional part
-  float proportional = currentAngle - setPoint;
-  
-  //integration part 
-  static float integral = 0; //static variable to hold integral value
-  integral += error * dt; //trapezoidal integration
-  integral = constrain(integral, -100, 100); //itegral windup
-
-  
-
-
-  //derivative part 
-  float derivative = gyroY; //using gyroscope value directly as derivative
-
-
-  float output = Kp * proportional + Ki * integral + Kd * derivative;
-
-  //deathZone implementation
-  if(output > 0){
-    output += 30;
-  }
-  if(output < 0){
-    output -= 30;
-  }
-
-  output = constrain(output, -255, 255); //constrain output to motor speed range
-}
