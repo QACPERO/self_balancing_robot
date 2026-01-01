@@ -81,16 +81,20 @@ MPU6050 mpu;
 ComplementaryFilter compFilter;
 IMUData imuData;
 
+
 //variales for complementary filter
 float tau = 1; //time constant for complementary filter /// 0.5 = mid /// 2.0 = smooth /// 0.1 = responsive
 float dt = 0.01; //time interval for filter update in seconds
 unsigned long timer = 0; //timer for dt calculation
 float initialAngle = 0.0; //initial angle for filter -> to be set after first reading
+float offsetAngle = 1.6; //angle offset for calibration
 
 //variables for PID control
-float Kp = 15; //proportional gain
+float Kp = 30; //proportional gain
 float Ki = 0.0;  //integral gain
-float Kd = 0.1;  //derivative gain
+float Kd = 0.6;  //derivative gain
+float deathZone = 23.0; //dead zone for motor control to overcome static friction
+float output = 0.0; //PID output for motor speed
 
 void setup() {
   // put your setup code here, to run once:
@@ -142,28 +146,44 @@ void setup() {
   timer = micros();
 }
 
+
 void loop() {
   // put your main code here, to run repeatedly:
-  dt = (double)(micros() - timer) / 1000000.0;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          dt = (double)(micros() - timer) / 1000000.0;
   timer = micros();
+
+
+  char serialInput = Serial.read();
+  if(serialInput == 'd'){
+    offsetAngle += 0.1;
+  } 
+  if(serialInput == 's'){
+    offsetAngle -= 0.1;
+  }
+
 
   mpu.getMotion6(&imuData.accelX, &imuData.accelY, &imuData.accelZ, &imuData.gyroX, &imuData.gyroY, &imuData.gyroZ);
   //convert gyroscope values to deg/s
   float gyroY = imuData.gyroY / 131.0; 
 
-  float acc_angle = atan2(-imuData.accelX, sqrt((long)imuData.accelY*imuData.accelY + (long)imuData.accelZ*imuData.accelZ)) * 57.296;
+  float acc_angle = atan2(-imuData.accelX, sqrt((long)imuData.accelY*imuData.accelY + (long)imuData.accelZ*imuData.accelZ)) * 57.296 + offsetAngle; //calculate angle from accelerometer
 
   compFilter.update(gyroY, acc_angle, dt); //update complementary filter with gyroscope Y axis and accelerometer angle
-  Serial.print("Filtered Angle: ");
-  Serial.println(compFilter.filteredAngle);
+  // Serial.print("Filtered Angle: ");
+  //Serial.println(compFilter.filteredAngle);
 
   //teleplot
+  
   Serial.print("> Filtered Angle:"); Serial.println(compFilter.filteredAngle);
   Serial.print("> Gyro Angle:"); Serial.println(gyroY);
   Serial.print("> Acc Angle:"); Serial.println(acc_angle);
+  Serial.print("> Offset Angle: "); Serial.println(offsetAngle);
+  
+  
 
   //PID control
   pidControl(compFilter.filteredAngle, gyroY, 0.0, dt); //set point is 0.0 for balancing
+  
 
 }
 
@@ -183,22 +203,23 @@ void pidControl(float currentAngle, float gyroY, float setPoint, float dt){  //c
 
 
   //derivative part 
-  float derivative = (-1)*gyroY; //using gyroscope value directly as derivative
+  float derivative = gyroY; //using gyroscope value directly as derivative
 
 
-  float output = Kp * proportional + Ki * integral + Kd * derivative;
+   output = Kp * proportional + Ki * integral + Kd * derivative;
   
 
   //deathZone implementation
   if(output > 0){
-    output += 20;
+    output += deathZone;
   }
   if(output < 0){
-    output -= 20;
+    output -= deathZone;
   }
 
   output = constrain(output, -255, 255); //constrain output to motor speed range
-
+  
+  Serial.print(">Error: "); Serial.println(error);
   Serial.print(">PID Output: "); Serial.println(output);
 
   //motor control
