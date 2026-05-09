@@ -83,15 +83,15 @@ IMUData imuData;
 
 
 //variales for complementary filter
-float tau = 1; //time constant for complementary filter /// 0.5 = mid /// 2.0 = smooth /// 0.1 = responsive
+float tau = 1.5; //time constant for complementary filter /// 0.5 = mid /// 2.0 = smooth /// 0.1 = responsive
 float dt = 0.01; //time interval for filter update in seconds
 unsigned long timer = 0; //timer for dt calculation
 float initialAngle = 0.0; //initial angle for filter -> to be set after first reading
-float offsetAngle = 1.6; //angle offset for calibration
+float offsetAngle = 1.50; //angle offset for calibration
 
 //variables for PID control
-float Kp = 30; //proportional gain
-float Ki = 0.0;  //integral gain
+float Kp = 25; //proportional gain
+float Ki = 0.01;  //integral gain
 float Kd = 0.6;  //derivative gain
 float deathZone = 23.0; //dead zone for motor control to overcome static friction
 float output = 0.0; //PID output for motor speed
@@ -106,11 +106,11 @@ void setup() {
   pinMode(ENB, OUTPUT);
 
   Wire.begin();
-  Serial.begin(115200);
+   Serial.begin(115200);
 
-  Serial.println("Initializing MPU6050...");
+  // Serial.println("Initializing MPU6050...");
   mpu.initialize();
-  Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
+  // Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
 
   // use the code below to change accel/gyro offset values
   /*
@@ -141,8 +141,8 @@ void setup() {
   float startAngle = atan2(-rawData.accelX, sqrt((long)rawData.accelY*rawData.accelY + (long)rawData.accelZ*rawData.accelZ)) * 57.296;
   
   compFilter.initialize(tau, dt, startAngle);
-  Serial.print("Start Angle: "); Serial.println(startAngle);//initialize complementary filter and initial angle from accelerometer
-  Serial.println("Setup complete.");
+  // Serial.print("Start Angle: "); Serial.println(startAngle);//initialize complementary filter and initial angle from accelerometer
+  // Serial.println("Setup complete.");
   timer = micros();
 }
 
@@ -174,10 +174,10 @@ void loop() {
 
   //teleplot
   
-  Serial.print("> Filtered Angle:"); Serial.println(compFilter.filteredAngle);
-  Serial.print("> Gyro Angle:"); Serial.println(gyroY);
-  Serial.print("> Acc Angle:"); Serial.println(acc_angle);
-  Serial.print("> Offset Angle: "); Serial.println(offsetAngle);
+   Serial.print("> Filtered Angle:"); Serial.println(compFilter.filteredAngle);
+   Serial.print("> Gyro Angle:"); Serial.println(gyroY);
+   Serial.print("> Acc Angle:"); Serial.println(acc_angle);
+   Serial.print("> Offset Angle: "); Serial.println(offsetAngle);
   
   
 
@@ -196,8 +196,12 @@ void pidControl(float currentAngle, float gyroY, float setPoint, float dt){  //c
   
   //integration part 
   static float integral = 0; //static variable to hold integral value
-  integral += error * dt; //trapezoidal integration
-  integral = constrain(integral, -100, 100); //itegral windup
+  if(abs(error) < 5){ //only integrate if error is within a reasonable range to prevent windup
+    integral += error * dt; //trapezoidal integration
+  }else{
+    integral = 0; //reset integral if error is too large
+  }
+  integral = constrain(integral, -10, 10); //itegral windup
 
   
 
@@ -219,8 +223,12 @@ void pidControl(float currentAngle, float gyroY, float setPoint, float dt){  //c
 
   output = constrain(output, -255, 255); //constrain output to motor speed range
   
-  Serial.print(">Error: "); Serial.println(error);
-  Serial.print(">PID Output: "); Serial.println(output);
+
+  // Serial.print(">Proportional: "); Serial.println(proportional);
+  // Serial.print(">Integral: "); Serial.println(integral);
+  // Serial.print(">Derivative: "); Serial.println(derivative);
+  // Serial.print(">Error: "); Serial.println(error);
+  // Serial.print(">PID Output: "); Serial.println(output);
 
   //motor control
   if(output > 0){
@@ -238,22 +246,22 @@ void pidControl(float currentAngle, float gyroY, float setPoint, float dt){  //c
 void setMotorSpeed(Motor motor, Direction direction, uint8_t speed){
   if(speed > 255) speed = 255;
   if(motor == MOTOR_A){ //
-    if(direction==FORWARD){
-      digitalWrite(IN1,LOW);
-      digitalWrite(IN2, HIGH);
-    }else if(direction==BACKWARD){
+    if(direction==BACKWARD){
       digitalWrite(IN1,HIGH);
       digitalWrite(IN2, LOW);
+    }else if(direction==FORWARD){
+      digitalWrite(IN1,LOW);
+      digitalWrite(IN2, HIGH);
     }
     analogWrite(ENA,speed);
     return;
   } else if(motor == MOTOR_B){
-    if(direction==FORWARD){
-      digitalWrite(IN3,LOW);
-      digitalWrite(IN4, HIGH);
-    }else if(direction==BACKWARD){
+    if(direction==BACKWARD){
       digitalWrite(IN3,HIGH);
       digitalWrite(IN4, LOW);
+    }else if(direction==FORWARD){
+      digitalWrite(IN3,LOW);
+      digitalWrite(IN4, HIGH);
     }
     analogWrite(ENB,speed);
     return;
